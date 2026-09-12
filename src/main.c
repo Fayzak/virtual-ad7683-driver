@@ -13,24 +13,18 @@ static void timer_callback(struct timer_list *t) {
 }
 
 static int __init virtual_ad7683_init(void) {
-  // if (alloc_type != 0 && alloc_type != 1) {
-  //   pr_err("Error: alloc_type must be 0 or 1\n");
-  //   return MP_INVALID;
-  // }
-
-  // struct msgpool_ctx *ctx = queuegetctx();
-  // queuesetctx(ctx, alloc_type, pool_min_nr, interval_ms);
-  // timer_setup(&ctx->consumer_timer, timer_callback, 0);
-  // mod_timer(&ctx->consumer_timer, jiffies + msecs_to_jiffies(interval_ms));
+  int ret = ad7683_device_init();
+  if (ret < 0) {
+      pr_err("ad7683: init error: %d\n", ret);
+      return ret;
+  }
 
   pr_info("virtual_ad7683 loaded successfully");
   return 0;
 }
 
 static void __exit virtual_ad7683_exit(void) {
-  struct msgpool_ctx *ctx = queuegetctx();
-  queueclearctx(ctx);
-
+  ad7683_device_exit();
   pr_info("virtual_ad7683 unloaded\n");
 }
 

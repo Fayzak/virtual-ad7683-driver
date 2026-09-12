@@ -13,9 +13,13 @@
 #define DEV_INVALID (-EINVAL) /* неверный параметр            */
 #define DEV_NOMEM (-ENOMEM)   /* недостаточно памяти          */
 #define DEV_BUSY (-EBUSY)     /* операция недоступна сейчас   */
+#define DEV_BADCOPY (-EFAULT)
 
 #define AD7683_MAX_SAMPLE_RATE 100000
 #define AD7683_DEFAULT_SAMPLE_RATE 10000
+#define AD7683_DEFAULT_BUFFER_SIZE 10000 /* Capacity in samples. */
+#define AD7683_COUNT 1
+#define AD7683_NAME "ad7683"
 
 struct ad7683_device {
     struct cdev cdev;
