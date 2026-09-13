@@ -1,6 +1,7 @@
 #include <linux/err.h>
 #include <linux/fs.h>
 #include <linux/module.h>
+#include <linux/random.h>
 #include <linux/uaccess.h>
 
 #include "client.h"
@@ -9,9 +10,28 @@
 
 struct ad7683_device driver_device;
 
-static u16 generate_sample(void)
+static inline u16 generate_sample(void)
 {
-    return 0;
+    return get_random_u16();
+}
+
+static enum hrtimer_restart timer_callback(struct hrtimer *timer)
+{
+    struct ad7683_device *dev = container_of(timer, struct ad7683_device, timer);
+    struct adc_client *client;
+    unsigned long flags;
+    u16 sample = generate_sample();
+
+    atomic64_inc(&dev->samples_generated);
+
+    spin_lock_irqsave(&dev->clients_spinlock, flags);
+    list_for_each_entry(client, &dev->clients, list) {
+        adc_client_push(client, sample);
+    }
+    spin_unlock_irqrestore(&dev->clients_spinlock, flags);
+
+    hrtimer_forward_now(timer, dev->sample_period);
+    return HRTIMER_RESTART;
 }
 
 static int device_open(struct inode *inode, struct file *file)
@@ -61,12 +81,17 @@ static ssize_t device_read(struct file *file, char __user *ubuf, size_t count, l
 
     while (bytes < count) {
         status = adc_client_pop(client, &sample);
-        if (status) {
-            /* Уже переданные данные важнее ошибки следующего pop.
-             * TODO(wait_queue): если буфер пуст и bytes == 0, обычный
-             * read должен ждать; пока возвращаем -EAGAIN для обоих режимов.
-             */
-            return bytes ? (ssize_t)bytes : status;
+        if (status < 0) {
+            if (status != CLI_EMPTY)
+                return bytes ? (ssize_t)bytes : status;
+            if (file->f_flags & O_NONBLOCK)
+                return bytes ? (ssize_t)bytes : CLI_EMPTY;
+
+            status = wait_event_interruptible(client->read_queue,
+                                             adc_client_has_data(client));
+            if (status)
+                return bytes ? (ssize_t)bytes : status;
+            continue;
         }
 
         if (copy_to_user(ubuf + bytes, &sample, sizeof(sample)))
@@ -93,7 +118,10 @@ int ad7683_device_init(void)
     spin_lock_init(&driver_device.clients_spinlock);
     INIT_LIST_HEAD(&driver_device.clients);
     driver_device.sample_rate = AD7683_DEFAULT_SAMPLE_RATE;
+    driver_device.sample_period = ns_to_ktime(NSEC_PER_SEC / driver_device.sample_rate);
     atomic64_set(&driver_device.samples_generated, 0);
+    hrtimer_init(&driver_device.timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+    driver_device.timer.function = timer_callback;
 
     ret = alloc_chrdev_region(&driver_device.devno, 0, AD7683_COUNT, AD7683_NAME);
     if (ret < 0) {
@@ -126,6 +154,8 @@ int ad7683_device_init(void)
         goto err_class;
     }
 
+    hrtimer_start(&driver_device.timer, driver_device.sample_period, HRTIMER_MODE_REL);
+
     return DEV_OK;
 
 err_class:
@@ -140,6 +170,7 @@ err_region:
 
 void ad7683_device_exit(void)
 {
+    hrtimer_cancel(&driver_device.timer);
 	device_destroy(driver_device.class, driver_device.devno);
 	class_destroy(driver_device.class);
 	cdev_del(&driver_device.cdev);

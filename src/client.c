@@ -60,6 +60,8 @@ int adc_client_push(struct adc_client *client, u16 sample)
     client->count++;
     spin_unlock_irqrestore(&client->lock, flags);
 
+    wake_up_interruptible(&client->read_queue);
+
     return CLI_OK;
 }
 
@@ -81,4 +83,16 @@ int adc_client_pop(struct adc_client *client, u16 *sample)
     spin_unlock_irqrestore(&client->lock, flags);
 
     return CLI_OK;
+}
+
+bool adc_client_has_data(struct adc_client *client)
+{
+    unsigned long flags;
+
+    bool ret;
+    spin_lock_irqsave(&client->lock, flags);
+    ret = client->count > 0;
+    spin_unlock_irqrestore(&client->lock, flags);
+
+    return ret;
 }

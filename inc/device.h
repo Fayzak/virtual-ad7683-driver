@@ -9,10 +9,9 @@
 #include <linux/spinlock.h>
 #include <linux/types.h>
 
-#define DEV_OK 0              /* операция успешна             */
-#define DEV_INVALID (-EINVAL) /* неверный параметр            */
-#define DEV_NOMEM (-ENOMEM)   /* недостаточно памяти          */
-#define DEV_BUSY (-EBUSY)     /* операция недоступна сейчас   */
+#define DEV_OK 0
+#define DEV_INVALID (-EINVAL)
+#define DEV_NOMEM (-ENOMEM)
 #define DEV_BADCOPY (-EFAULT)
 
 #define AD7683_MAX_SAMPLE_RATE 100000
@@ -29,6 +28,7 @@ struct ad7683_device {
     struct device *device;
 
     struct hrtimer timer;
+    ktime_t sample_period;
 
     u32 sample_rate;
 

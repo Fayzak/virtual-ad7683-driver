@@ -31,10 +31,8 @@ struct adc_client {
 
 struct adc_client *adc_client_create(size_t buffer_size);
 void adc_client_destroy(struct adc_client *client);
-/* Callers must provide a live client and, for pop, a valid kernel pointer.
- * A full buffer drops the new sample and increments overruns.
- */
 int adc_client_push(struct adc_client *client, u16 sample);
 int adc_client_pop(struct adc_client *client, u16 *sample);
+bool adc_client_has_data(struct adc_client *client);
 
 #endif

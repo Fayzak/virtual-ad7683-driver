@@ -7,11 +7,6 @@
 
 #include "device.h"
 
-static void timer_callback(struct timer_list *t) {
-
-  // mod_timer(&ctx->consumer_timer, jiffies + msecs_to_jiffies(ctx->interval_ms));
-}
-
 static int __init virtual_ad7683_init(void) {
   int ret = ad7683_device_init();
   if (ret < 0) {
