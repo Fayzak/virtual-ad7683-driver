@@ -103,18 +103,73 @@ static ssize_t device_read(struct file *file, char __user *ubuf, size_t count, l
     return bytes;
 }
 
+static int device_set_sample_rate(u32 rate)
+{
+    if (!rate || rate > AD7683_MAX_SAMPLE_RATE)
+        return DEV_INVALID;
+
+    mutex_lock(&driver_device.config_lock);
+    hrtimer_cancel(&driver_device.timer);
+    driver_device.sample_rate = rate;
+    driver_device.sample_period = ns_to_ktime(NSEC_PER_SEC / rate);
+    hrtimer_start(&driver_device.timer, driver_device.sample_period, HRTIMER_MODE_REL);
+    mutex_unlock(&driver_device.config_lock);
+
+    return DEV_OK;
+}
+
+static long device_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
+{
+    void __user *argp = (void __user *)arg;
+    __u32 rate;
+    struct adc_client *client = file->private_data;
+    unsigned long flags;
+
+    switch (cmd)
+    {
+        case AD7683_IOC_GET_SAMPLE_RATE:
+            mutex_lock(&driver_device.config_lock);
+            rate = driver_device.sample_rate;
+            mutex_unlock(&driver_device.config_lock);
+
+            if (copy_to_user(argp, &rate, sizeof(rate)))
+                return DEV_BADCOPY;
+
+            break;
+
+        case AD7683_IOC_SET_SAMPLE_RATE:
+            if (copy_from_user(&rate, argp, sizeof(rate)))
+                return DEV_BADCOPY;
+
+            return device_set_sample_rate(rate);
+
+        case AD7683_IOC_CLEAR_BUFFER:
+            spin_lock_irqsave(&client->lock, flags);
+            client->head = client->tail = client->count = 0;
+            spin_unlock_irqrestore(&client->lock, flags);
+
+            break;
+
+        default:
+            return DEV_BAD_IOCTL;
+    }
+
+    return DEV_OK;
+}
+
 static const struct file_operations democh_fops = {
 	.owner   = THIS_MODULE,
 	.open    = device_open,
 	.release = device_release,
 	.read    = device_read,
-	.write   = NULL,
+	.unlocked_ioctl = device_ioctl,
 };
 
 int ad7683_device_init(void)
 {
     int ret;
 
+    mutex_init(&driver_device.config_lock);
     spin_lock_init(&driver_device.clients_spinlock);
     INIT_LIST_HEAD(&driver_device.clients);
     driver_device.sample_rate = AD7683_DEFAULT_SAMPLE_RATE;
