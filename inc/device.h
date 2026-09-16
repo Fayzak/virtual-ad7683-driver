@@ -12,11 +12,14 @@
 #include <linux/ioctl.h>
 #include <linux/types.h>
 
+#include "client.h"
+
 #define DEV_OK 0
 #define DEV_INVALID (-EINVAL)
 #define DEV_NOMEM (-ENOMEM)
 #define DEV_BADCOPY (-EFAULT)
 #define DEV_BAD_IOCTL (-ENOTTY)
+#define DEV_BUSY (-EAGAIN)
 
 #define AD7683_IOC_MAGIC 'A'
 #define AD7683_IOC_GET_SAMPLE_RATE _IOR(AD7683_IOC_MAGIC, 0, __u32)
@@ -25,7 +28,7 @@
 
 #define AD7683_MAX_SAMPLE_RATE 100000
 #define AD7683_DEFAULT_SAMPLE_RATE 10000
-#define AD7683_DEFAULT_BUFFER_SIZE 10000 /* Capacity in samples. */
+#define AD7683_DEFAULT_BUFFER_SIZE 10000
 #define AD7683_COUNT 1
 #define AD7683_NAME "ad7683"
 
@@ -36,6 +39,8 @@ struct ad7683_device {
     struct class *class;
     struct device *device;
 
+    struct proc_dir_entry *proc_file;
+
     struct hrtimer timer;
     ktime_t sample_period;
 
@@ -44,8 +49,16 @@ struct ad7683_device {
 
     spinlock_t clients_spinlock;
     struct list_head clients;
+    size_t clients_count;
 
     atomic64_t samples_generated;
+};
+
+struct device_stats {
+    u32 rate;
+    u64 generated;
+    size_t count;
+    struct client_stats clients[];
 };
 
 int ad7683_device_init(void);

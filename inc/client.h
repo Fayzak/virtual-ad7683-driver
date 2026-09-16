@@ -15,17 +15,24 @@ struct adc_client {
     struct list_head list;
 
     u16 *buffer;
-    size_t buffer_size; /* Capacity in u16 samples. */
+    size_t buffer_size;
 
-    size_t head; /* Next write position. */
-    size_t tail; /* Next read position. */
+    size_t head;
+    size_t tail;
     size_t count;
 
     spinlock_t lock;
 
     wait_queue_head_t read_queue;
 
-    u64 samples_read; /* Samples successfully removed by pop, not user copies. */
+    u64 samples_read;
+    u64 overruns;
+};
+
+struct client_stats {
+    size_t capacity;
+    size_t buffered;
+    u64 samples_read;
     u64 overruns;
 };
 
