@@ -1,9 +1,9 @@
 #ifndef CLIENT_H
 #define CLIENT_H
 
+#include <linux/errno.h>
 #include <linux/list.h>
 #include <linux/spinlock.h>
-#include <linux/errno.h>
 #include <linux/types.h>
 #include <linux/wait.h>
 
@@ -12,28 +12,28 @@
 #define CLI_EMPTY (-EAGAIN)
 
 struct adc_client {
-    struct list_head list;
+	struct list_head list;
 
-    u16 *buffer;
-    size_t buffer_size;
+	u16 *buffer;
+	size_t buffer_size;
 
-    size_t head;
-    size_t tail;
-    size_t count;
+	size_t head;
+	size_t tail;
+	size_t count;
 
-    spinlock_t lock;
+	spinlock_t lock;
 
-    wait_queue_head_t read_queue;
+	wait_queue_head_t read_queue;
 
-    u64 samples_read;
-    u64 overruns;
+	u64 samples_read;
+	u64 overruns;
 };
 
 struct client_stats {
-    size_t capacity;
-    size_t buffered;
-    u64 samples_read;
-    u64 overruns;
+	size_t capacity;
+	size_t buffered;
+	u64 samples_read;
+	u64 overruns;
 };
 
 struct adc_client *adc_client_create(size_t buffer_size);

@@ -30,4 +30,4 @@ clean:
 	$(MAKE) -C $(KERNEL_DIR) M=$(PWD) clean
 
 format:
-	find . -name '*.c' -o -name '*.h' | xargs clang-format -i --style=LLVM
+	find . -name '*.c' -o -name '*.h' | xargs clang-format -i --style=file

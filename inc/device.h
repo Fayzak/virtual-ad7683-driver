@@ -5,11 +5,10 @@
 #include <linux/cdev.h>
 #include <linux/device.h>
 #include <linux/hrtimer.h>
-#include <linux/list.h>
-#include <linux/spinlock.h>
-#include <linux/types.h>
-#include <linux/mutex.h>
 #include <linux/ioctl.h>
+#include <linux/list.h>
+#include <linux/mutex.h>
+#include <linux/spinlock.h>
 #include <linux/types.h>
 
 #include "client.h"
@@ -33,35 +32,37 @@
 #define AD7683_NAME "ad7683"
 
 struct ad7683_device {
-    struct cdev cdev;
-    dev_t devno;
+	struct cdev cdev;
+	dev_t devno;
 
-    struct class *class;
-    struct device *device;
+	struct class *class;
+	struct device *device;
 
-    struct proc_dir_entry *proc_file;
+	struct hrtimer timer;
+	ktime_t sample_period;
 
-    struct hrtimer timer;
-    ktime_t sample_period;
+	u32 sample_rate;
+	struct mutex config_lock;
 
-    u32 sample_rate;
-    struct mutex config_lock;
+	spinlock_t clients_spinlock;
+	struct list_head clients;
+	size_t clients_count;
 
-    spinlock_t clients_spinlock;
-    struct list_head clients;
-    size_t clients_count;
-
-    atomic64_t samples_generated;
+	atomic64_t samples_generated;
+	u16 next_sample;
 };
 
 struct device_stats {
-    u32 rate;
-    u64 generated;
-    size_t count;
-    struct client_stats clients[];
+	u32 rate;
+	u64 generated;
+	size_t count;
+	struct client_stats clients[];
 };
 
+struct device_stats *ad7683_get_stats(void);
 int ad7683_device_init(void);
 void ad7683_device_exit(void);
+u32 ad7683_get_sample_rate(void);
+int ad7683_set_sample_rate(u32 rate);
 
 #endif
