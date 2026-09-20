@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """Test sysfs, ioctl, reads, and /proc/ad7683. Run with no other driver clients."""
 
+# This test script was developed collaboratively with chatgpt-6-astra.
+
 import argparse
 import errno
 import fcntl
 import os
+import multiprocessing
 from pathlib import Path
 import signal
 import struct
@@ -140,6 +143,93 @@ def test_read_and_stats(fds, args):
     passed("/proc: 2 clients, valid buffer occupancy, 16 samples read each")
 
 
+def process_client(device, connection):
+    fd = None
+    try:
+        signal.signal(signal.SIGALRM, timeout_handler)
+        fd = os.open(device, os.O_RDONLY)
+        connection.send(("ready", os.getpid()))
+        while True:
+            command = connection.recv()
+            if command == "stop":
+                break
+            if command != "read":
+                raise RuntimeError(f"Unknown worker command: {command}")
+            data = read_samples(fd)
+            connection.send(("data", len(data)))
+    except (OSError, RuntimeError, EOFError) as exc:
+        connection.send(("error", str(exc)))
+    finally:
+        if fd is not None:
+            os.close(fd)
+        connection.close()
+
+
+def receive_worker(connection, expected):
+    if not connection.poll(10):
+        raise TimeoutError("Client process did not respond within 10 seconds")
+    kind, value = connection.recv()
+    if kind != expected:
+        raise RuntimeError(f"Client process: expected {expected}, got {kind}: {value}")
+    return value
+
+
+def test_process_clients(args):
+    context = multiprocessing.get_context("spawn")
+    workers = []
+    connections = []
+    rate_path = Path(args.sysfs) / "sample_rate"
+    original_rate = int(rate_path.read_text())
+    check_proc(args.proc, 0)
+    try:
+        rate_path.write_text("100\n")
+        for _ in range(2):
+            parent, child = context.Pipe()
+            worker = context.Process(target=process_client, args=(args.device, child))
+            try:
+                worker.start()
+            except BaseException:
+                parent.close()
+                child.close()
+                raise
+            child.close()
+            workers.append(worker)
+            connections.append(parent)
+
+        pids = [receive_worker(pipe, "ready") for pipe in connections]
+        check("Two separate client processes", len(set(pids)), 2)
+        stats = check_proc(args.proc, 2, 100)
+        check("Initial process counters",
+              sorted(row["samples_read"] for row in stats["rows"]), [0, 0])
+
+        for index, pipe in enumerate(connections):
+            pipe.send("read")
+            check(f"Process {index}: read bytes", receive_worker(pipe, "data"), 32)
+            stats = check_proc(args.proc, 2, 100)
+            expected = [0, 16] if index == 0 else [16, 16]
+            check("Independent process read counters",
+                  sorted(row["samples_read"] for row in stats["rows"]), expected)
+
+        for pipe in connections:
+            pipe.send("stop")
+        for worker in workers:
+            worker.join(5)
+            check("Client process exit", worker.exitcode, 0)
+    finally:
+        for worker in workers:
+            if worker.is_alive():
+                worker.terminate()
+            worker.join(2)
+            if worker.is_alive():
+                worker.kill()
+                worker.join()
+        for pipe in connections:
+            pipe.close()
+        rate_path.write_text(f"{original_rate}\n")
+    check_proc(args.proc, 0, original_rate)
+    passed("Per-open: two processes, separate buffers and independent read counters")
+
+
 def run(args):
     check_proc(args.proc, 0)
     fds = []
@@ -175,11 +265,12 @@ def main():
     print("Virtual AD7683 ADC test", flush=True)
     try:
         run(args)
-    except (OSError, RuntimeError, ValueError, KeyError, KeyboardInterrupt) as exc:
+        test_process_clients(args)
+    except (OSError, RuntimeError, ValueError, KeyError, EOFError, KeyboardInterrupt) as exc:
         print(f"[FAIL] {exc or 'Test interrupted by user'}", file=sys.stderr)
         print("Result: test did not complete successfully.")
         return 1
-    print("Result: all 6 test stages passed.")
+    print("Result: all 7 test stages passed.")
     return 0
 
 
