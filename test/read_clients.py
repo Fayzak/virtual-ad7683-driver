@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Test sysfs, ioctl, reads, and /proc/ad7683. Run with no other driver clients."""
+"""Test interfaces and sawtooth samples. Run with no other driver clients."""
 
 # This test script was developed collaboratively with chatgpt-6-astra.
 
@@ -82,7 +82,7 @@ def check_proc(path, expected_clients, rate=None):
 
 
 def timeout_handler(signum, frame):
-    raise TimeoutError("Read did not complete within 5 seconds")
+    raise TimeoutError("Timed out waiting for driver data")
 
 
 def read_samples(fd):
@@ -141,6 +141,84 @@ def test_read_and_stats(fds, args):
     check("/proc: total counter did not decrease",
           after["samples_generated"] >= before["samples_generated"], True)
     passed("/proc: 2 clients, valid buffer occupancy, 16 samples read each")
+
+
+def read_sawtooth(fd, total_samples=65538):
+    """Check native-endian u16 samples, preserving continuity across reads."""
+    previous = None
+    samples_read = 0
+    wraps = 0
+    mismatch = None
+
+    # One deadline for the entire stream, including short/interrupted reads.
+    signal.alarm(30)
+    try:
+        while samples_read < total_samples:
+            count = min(512, total_samples - samples_read) * 2
+            try:
+                data = os.read(fd, count)
+            except InterruptedError:
+                continue
+            if not data:
+                raise RuntimeError(f"Sawtooth: unexpected EOF after {samples_read} samples")
+            if len(data) % 2 or len(data) > count:
+                raise RuntimeError(f"Sawtooth: invalid read length {len(data)}")
+
+            for (value,) in struct.iter_unpack("=H", data):
+                if previous is not None:
+                    expected = (previous + 1) & 0xffff
+                    if value != expected and mismatch is None:
+                        mismatch = (f"sample {samples_read}: expected {expected}, "
+                                    f"got {value} (previous {previous})")
+                    if previous == 65535 and value == 0:
+                        wraps += 1
+                previous = value
+                samples_read += 1
+    except TimeoutError as exc:
+        raise TimeoutError(
+            f"Sawtooth: 30-second deadline exceeded after {samples_read} samples"
+        ) from exc
+    finally:
+        signal.alarm(0)
+
+    return mismatch, wraps
+
+
+def test_sawtooth(args):
+    check_proc(args.proc, 0)
+    fd = os.open(args.device, os.O_RDONLY)
+    original_rate = None
+    try:
+        original_rate = get_rate(fd)
+        set_rate(fd, 10000)
+        check("Sawtooth: CLEAR", fcntl.ioctl(fd, CLEAR_BUFFER), 0)
+        before = check_proc(args.proc, 1, 10000)["rows"][0]
+
+        # The generator runs before open(); CLEAR does not reset its phase.
+        total_samples = 65538
+        mismatch, wraps = read_sawtooth(fd, total_samples)
+        after = check_proc(args.proc, 1, 10000)["rows"][0]
+        overruns = after["overruns"] - before["overruns"]
+        if overruns != 0:
+            raise RuntimeError(
+                f"Sawtooth: overruns delta={overruns}; cannot establish a loss-free "
+                f"stream; first discontinuity: {mismatch or 'none observed'}"
+            )
+        if mismatch is not None:
+            raise RuntimeError(f"Sawtooth: {mismatch}; overruns delta=0")
+        check("Sawtooth: samples_read delta",
+              after["samples_read"] - before["samples_read"], total_samples)
+        check("Sawtooth: observed 65535 -> 0", wraps >= 1, True)
+    finally:
+        try:
+            if original_rate is not None:
+                set_rate(fd, original_rate)
+                check("Sawtooth: restore sample rate", get_rate(fd), original_rate)
+        finally:
+            os.close(fd)
+    check_proc(args.proc, 0, original_rate)
+    passed("Sawtooth: 65538 native-endian u16 samples, step +1, wrap, no overruns; "
+           "rate restored and client closed")
 
 
 def process_client(device, connection):
@@ -266,11 +344,12 @@ def main():
     try:
         run(args)
         test_process_clients(args)
+        test_sawtooth(args)
     except (OSError, RuntimeError, ValueError, KeyError, EOFError, KeyboardInterrupt) as exc:
         print(f"[FAIL] {exc or 'Test interrupted by user'}", file=sys.stderr)
         print("Result: test did not complete successfully.")
         return 1
-    print("Result: all 7 test stages passed.")
+    print("Result: all 8 test stages passed.")
     return 0
 
 
