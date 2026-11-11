@@ -1,0 +1,3 @@
+interface:
+  display_name: "AD7683: проверка в VM"
+  short_description: "Сборка и интеграционные тесты драйвера в VM"
