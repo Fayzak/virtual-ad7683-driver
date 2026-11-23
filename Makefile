@@ -3,7 +3,7 @@ KERNEL_DIR ?= /lib/modules/$(shell uname -r)/build
 
 DRV_NAME := virtual-ad7683
 
-.PHONY: build run remove install uninstall clean format check
+.PHONY: build run remove install uninstall clean format check build-spi run-spi remove-spi
 
 build:
 	$(MAKE) -C $(KERNEL_DIR) M=$(PWD) modules
@@ -25,6 +25,15 @@ uninstall:
 	rm /lib/modules/$(shell uname -r)/$(DRV_NAME).ko
 	rm /etc/modprobe.d/$(DRV_NAME).conf
 	depmod -a
+
+build-spi:
+	$(MAKE) -C $(KERNEL_DIR) M=$(PWD) SPI_STAND=1 modules
+
+run-spi:
+	insmod $(PWD)/spi.ko
+
+remove-spi:
+	rmmod spi
 
 clean:
 	$(MAKE) -C $(KERNEL_DIR) M=$(PWD) clean
