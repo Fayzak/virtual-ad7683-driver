@@ -65,6 +65,15 @@ static void ad7683_spi_controller_exit(void)
 	root_device_unregister(controller.parent);
 }
 
+static int ad7683_probe(struct spi_device *spi)
+{
+	return 0;
+}
+
+static void ad7683_remove(struct spi_device *spi)
+{
+}
+
 static int __init ad7683_spi_init(void)
 {
 	int ret = ad7683_spi_controller_init();
@@ -86,6 +95,22 @@ static void __exit ad7683_spi_exit(void)
 
 module_init(ad7683_spi_init);
 module_exit(ad7683_spi_exit);
+
+static const struct spi_device_id ad7683_id[] = {
+	{ "ad7683", 0 },
+	{ }
+};
+MODULE_DEVICE_TABLE(spi, ad7683_id);
+
+static struct spi_driver ad7683_driver __maybe_unused = {
+	.driver = {
+		.name = "ad7683",
+		.probe_type = PROBE_FORCE_SYNCHRONOUS,
+	},
+	.probe		= ad7683_probe,
+	.remove		= ad7683_remove,
+	.id_table	= ad7683_id,
+};
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Timofey Zaika");

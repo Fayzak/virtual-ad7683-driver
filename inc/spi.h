@@ -6,7 +6,7 @@
 
 // SPI Protocol reference - ad7476.c
 struct ad7683_protocol {
-
+	int probe_result;
 };
 
 // SPI Controller reference - spi-bcm2835.c
